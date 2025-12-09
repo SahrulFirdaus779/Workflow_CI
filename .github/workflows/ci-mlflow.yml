@@ -57,17 +57,17 @@ jobs:
           workdir="docker_ctx"
           rm -rf "$workdir" && mkdir -p "$workdir/model"
           cp -r "$model_dir"/* "$workdir/model/"
-            cat > "$workdir/Dockerfile" <<'EOF'
-            FROM python:3.10-slim
-            WORKDIR /opt/model
-            COPY model /opt/model
-            RUN pip install --no-cache-dir -r /opt/model/requirements.txt || true \
-              && pip install --no-cache-dir mlflow==2.17.0 \
-              && pip install --no-cache-dir scikit-learn==1.4.2 pandas==2.2.2 numpy==1.26.4
-            EXPOSE 8080
-            ENV MLFLOW_MODEL_PATH=/opt/model
-            CMD ["mlflow", "models", "serve", "-m", "/opt/model", "-h", "0.0.0.0", "-p", "8080", "--env-manager", "local"]
-            EOF
+          cat > "$workdir/Dockerfile" <<'EOF'
+FROM python:3.10-slim
+WORKDIR /opt/model
+COPY model /opt/model
+RUN pip install --no-cache-dir -r /opt/model/requirements.txt || true \
+    && pip install --no-cache-dir mlflow==2.17.0 \
+    && pip install --no-cache-dir scikit-learn==1.4.2 pandas==2.2.2 numpy==1.26.4
+EXPOSE 8080
+ENV MLFLOW_MODEL_PATH=/opt/model
+CMD ["mlflow", "models", "serve", "-m", "/opt/model", "-h", "0.0.0.0", "-p", "8080", "--env-manager", "local"]
+EOF
           docker build -t "$image_name" "$workdir"
           echo "IMAGE_NAME=$image_name" >> $GITHUB_ENV
 
@@ -75,10 +75,8 @@ jobs:
         if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
         shell: bash
         run: |
-          if [ -z "$IMAGE_NAME" ]; then
-            echo "IMAGE_NAME not set from previous step" >&2
-            exit 1
-          fi
+          user_lc=$(echo "$DOCKERHUB_USERNAME" | tr '[:upper:]' '[:lower:]')
+          image_name="${user_lc}/workflow-ci-mlflow"
           echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-          docker push "$IMAGE_NAME"
+          docker push "$image_name"
       
