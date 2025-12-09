@@ -54,7 +54,10 @@ jobs:
           image_name="${user_lc}/workflow-ci-mlflow"
           echo "Using model path: $model_dir"
           echo "Building image: $image_name"
-          MLFLOW_DOCKER_BUILDER_IMAGE="python:3.10-slim" mlflow models build-docker -m "$model_dir" -n "$image_name"
+          mlflow models build-docker \
+            -m "$model_dir" \
+            -n "$image_name" \
+            --build-image python:3.10-slim
           echo "IMAGE_NAME=$image_name" >> $GITHUB_ENV
 
       - name: Push Docker image
