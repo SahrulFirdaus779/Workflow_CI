@@ -81,3 +81,4 @@ EOF
           fi
           echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
           docker push "$IMAGE_NAME"
+      
