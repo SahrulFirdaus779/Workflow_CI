@@ -50,19 +50,25 @@ jobs:
             echo "No MLflow model artifacts found to build docker image." >&2
             exit 1
           fi
-          conda_file="$model_dir/conda.yaml"
-          if [ -f "$conda_file" ]; then
-            sed -i 's/python=3\.8/python=3.10/g' "$conda_file"
-            grep -n "python" "$conda_file" || true
-          fi
           user_lc=$(echo "$DOCKERHUB_USERNAME" | tr '[:upper:]' '[:lower:]')
           image_name="${user_lc}/workflow-ci-mlflow"
           echo "Using model path: $model_dir"
           echo "Building image: $image_name"
-          mlflow models build-docker \
-            -m "$model_dir" \
-            -n "$image_name" \
-            --install-mlflow
+          workdir="docker_ctx"
+          rm -rf "$workdir" && mkdir -p "$workdir/model"
+          cp -r "$model_dir"/* "$workdir/model/"
+          cat > "$workdir/Dockerfile" <<'EOF'
+FROM python:3.10-slim
+WORKDIR /opt/model
+COPY model /opt/model
+RUN pip install --no-cache-dir -r /opt/model/requirements.txt || true \
+    && pip install --no-cache-dir mlflow==2.17.0 \
+    && pip install --no-cache-dir scikit-learn==1.4.2 pandas==2.2.2 numpy==1.26.4
+EXPOSE 8080
+ENV MLFLOW_MODEL_PATH=/opt/model
+CMD ["mlflow", "models", "serve", "-m", "/opt/model", "-h", "0.0.0.0", "-p", "8080", "--env-manager", "local"]
+EOF
+          docker build -t "$image_name" "$workdir"
           echo "IMAGE_NAME=$image_name" >> $GITHUB_ENV
 
       - name: Push Docker image
