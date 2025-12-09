@@ -1,4 +1,5 @@
 import argparse
+import os
 from pathlib import Path
 from contextlib import nullcontext
 
@@ -45,7 +46,14 @@ def train_and_log(X_train, X_test, y_train, y_test, experiment_name: str, random
         n_jobs=-1,
     )
     active = mlflow.active_run()
-    run_ctx = nullcontext() if active else mlflow.start_run(run_name="ci_random_forest_autolog")
+    env_run_id = os.getenv("MLFLOW_RUN_ID")
+    if active:
+        run_ctx = nullcontext()
+    elif env_run_id:
+        # Attach to MLflow Projects parent run to avoid ID mismatch
+        run_ctx = mlflow.start_run(run_id=env_run_id)
+    else:
+        run_ctx = mlflow.start_run(run_name="ci_random_forest_autolog")
 
     with run_ctx:
         clf.fit(X_train, y_train)
