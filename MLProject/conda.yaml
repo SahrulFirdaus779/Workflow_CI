@@ -1,0 +1,10 @@
+name: workflow-ci-env
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - mlflow==2.17.0
+      - pandas==2.2.2
+      - numpy==1.26.4
+      - scikit-learn==1.4.2
+      - joblib==1.4.2

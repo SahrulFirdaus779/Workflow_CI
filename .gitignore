@@ -1,0 +1,21 @@
+# Environments
+.venv/
+venv/
+
+# MLflow local runs
+mlruns/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Outputs from runs
+MLProject/outputs/

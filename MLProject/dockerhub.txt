@@ -1,0 +1,4 @@
+Docker Hub image target (set via secrets in CI):
+- Repository: <dockerhub-username>/workflow-ci-mlflow
+- Login: use DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets
+- Build command (in CI): mlflow models build-docker -m runs:/latest/model -n <dockerhub-username>/workflow-ci-mlflow

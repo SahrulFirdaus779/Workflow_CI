@@ -1,0 +1,21 @@
+name: workflow-ci
+
+conda_env: conda.yaml
+
+entry_points:
+  main:
+    parameters:
+      train-path: {type: str, default: data_clustering_preprocessing/train_processed.csv}
+      test-path: {type: str, default: data_clustering_preprocessing/test_processed.csv}
+      target-col: {type: str, default: Target}
+      experiment-name: {type: str, default: ci_data_clustering}
+      random-state: {type: int, default: 42}
+      output-dir: {type: str, default: outputs}
+    command: >-
+      python modelling.py
+      --train-path {train-path}
+      --test-path {test-path}
+      --target-col {target-col}
+      --experiment-name {experiment-name}
+      --random-state {random-state}
+      --output-dir {output-dir}
