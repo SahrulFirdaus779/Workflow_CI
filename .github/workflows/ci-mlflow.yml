@@ -44,22 +44,26 @@ jobs:
       - name: Build Docker image from latest run
         if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
         shell: bash
-        env:
-          DOCKER_IMAGE: ${{ env.DOCKERHUB_USERNAME }}/workflow-ci-mlflow
         run: |
           model_dir=$(find mlruns -path "*/artifacts/model" -type d | head -n 1)
           if [ -z "$model_dir" ]; then
             echo "No MLflow model artifacts found to build docker image." >&2
             exit 1
           fi
+          user_lc=$(echo "$DOCKERHUB_USERNAME" | tr '[:upper:]' '[:lower:]')
+          image_name="${user_lc}/workflow-ci-mlflow"
           echo "Using model path: $model_dir"
-          mlflow models build-docker -m "$model_dir" -n "$DOCKER_IMAGE"
+          echo "Building image: $image_name"
+          mlflow models build-docker -m "$model_dir" -n "$image_name"
+          echo "IMAGE_NAME=$image_name" >> $GITHUB_ENV
 
       - name: Push Docker image
         if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
         shell: bash
-        env:
-          DOCKER_IMAGE: ${{ env.DOCKERHUB_USERNAME }}/workflow-ci-mlflow
         run: |
+          if [ -z "$IMAGE_NAME" ]; then
+            echo "IMAGE_NAME not set from previous step" >&2
+            exit 1
+          fi
           echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-          docker push "$DOCKER_IMAGE"
+          docker push "$IMAGE_NAME"
