@@ -44,7 +44,8 @@ def train_and_log(X_train, X_test, y_train, y_test, experiment_name: str, random
         n_jobs=-1,
     )
 
-    with mlflow.start_run(run_name="ci_random_forest_autolog"):
+    # mlflow run already opens a parent run; use nested run to avoid ID mismatch
+    with mlflow.start_run(run_name="ci_random_forest_autolog", nested=True):
         clf.fit(X_train, y_train)
         preds = clf.predict(X_test)
 
