@@ -59,15 +59,15 @@ jobs:
           rm -rf "$workdir" && mkdir -p "$workdir/model"
           cp -r "$model_dir"/* "$workdir/model/"
           cat > "$workdir/Dockerfile" <<'EOF'
-            FROM python:3.10-slim
-            WORKDIR /opt/model
-            COPY model /opt/model
-            RUN pip install --no-cache-dir -r /opt/model/requirements.txt || true \
-              && pip install --no-cache-dir mlflow==2.17.0 \
-              && pip install --no-cache-dir scikit-learn==1.4.2 pandas==2.2.2 numpy==1.26.4
-            EXPOSE 8080
-            ENV MLFLOW_MODEL_PATH=/opt/model
-            CMD ["mlflow", "models", "serve", "-m", "/opt/model", "-h", "0.0.0.0", "-p", "8080", "--env-manager", "local"]
+FROM python:3.10-slim
+WORKDIR /opt/model
+COPY model /opt/model
+RUN pip install --no-cache-dir -r /opt/model/requirements.txt || true \
+    && pip install --no-cache-dir mlflow==2.17.0 \
+    && pip install --no-cache-dir scikit-learn==1.4.2 pandas==2.2.2 numpy==1.26.4
+EXPOSE 8080
+ENV MLFLOW_MODEL_PATH=/opt/model
+CMD ["mlflow", "models", "serve", "-m", "/opt/model", "-h", "0.0.0.0", "-p", "8080", "--env-manager", "local"]
 EOF
           docker build -t "$image_name" "$workdir"
           echo "IMAGE_NAME=$image_name" >> $GITHUB_ENV
