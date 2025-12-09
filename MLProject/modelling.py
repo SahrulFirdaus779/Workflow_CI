@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+from contextlib import nullcontext
 
 import joblib
 import mlflow
@@ -43,9 +44,10 @@ def train_and_log(X_train, X_test, y_train, y_test, experiment_name: str, random
         random_state=random_state,
         n_jobs=-1,
     )
+    active = mlflow.active_run()
+    run_ctx = nullcontext() if active else mlflow.start_run(run_name="ci_random_forest_autolog")
 
-    # mlflow run already opens a parent run; use nested run to avoid ID mismatch
-    with mlflow.start_run(run_name="ci_random_forest_autolog", nested=True):
+    with run_ctx:
         clf.fit(X_train, y_train)
         preds = clf.predict(X_test)
 
