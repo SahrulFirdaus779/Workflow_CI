@@ -45,15 +45,10 @@ def train_and_log(X_train, X_test, y_train, y_test, experiment_name: str, random
         random_state=random_state,
         n_jobs=-1,
     )
+    # Prevent MLflow Projects env run-id mismatch by clearing the env var, then only start a run if none is active.
+    os.environ.pop("MLFLOW_RUN_ID", None)
     active = mlflow.active_run()
-    env_run_id = os.getenv("MLFLOW_RUN_ID")
-    if active:
-        run_ctx = nullcontext()
-    elif env_run_id:
-        # Attach to MLflow Projects parent run to avoid ID mismatch
-        run_ctx = mlflow.start_run(run_id=env_run_id)
-    else:
-        run_ctx = mlflow.start_run(run_name="ci_random_forest_autolog")
+    run_ctx = nullcontext() if active else mlflow.start_run(run_name="ci_random_forest_autolog")
 
     with run_ctx:
         clf.fit(X_train, y_train)
