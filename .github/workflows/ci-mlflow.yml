@@ -16,69 +16,92 @@ jobs:
     defaults:
       run:
         working-directory: MLProject
+
     steps:
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install mlflow==2.17.0 pandas==2.2.2 numpy==1.26.4 scikit-learn==1.4.2 joblib==1.4.2
+          pip install \
+            mlflow==2.17.0 \
+            pandas==2.2.2 \
+            numpy==1.26.4 \
+            scikit-learn==1.4.2 \
+            joblib==1.4.2
 
-      - name: Run MLflow Project (local env)
+      - name: Run MLflow Project Locally
         run: |
           mlflow run . --env-manager local -P output-dir=outputs
 
-      - name: Upload outputs artifact
+      - name: Upload Outputs as Artifact
         uses: actions/upload-artifact@v4
         with:
           name: mlflow-ci-outputs
           path: MLProject/outputs
           if-no-files-found: error
 
-      - name: Build Docker image from latest run
+      - name: Build Docker Image from Latest MLflow Model
         if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
         shell: bash
         run: |
           set -e
+
+          # Temukan model MLflow
           model_dir=$(find mlruns -path "*/artifacts/model" -type d | head -n 1)
           if [ -z "$model_dir" ]; then
-            echo "No MLflow model artifacts found to build docker image." >&2
+            echo "❌ No MLflow model artifacts found."
             exit 1
           fi
+
           user_lc=$(echo "$DOCKERHUB_USERNAME" | tr '[:upper:]' '[:lower:]')
           image_name="${user_lc}/workflow-ci-mlflow"
+
           echo "Using model path: $model_dir"
           echo "Building image: $image_name"
+
+          # Build Docker context
           workdir="docker_ctx"
           rm -rf "$workdir" && mkdir -p "$workdir/model"
           cp -r "$model_dir"/* "$workdir/model/"
-          printf '%s\n' \
-            'FROM python:3.10-slim' \
-            'WORKDIR /opt/model' \
-            'COPY model /opt/model' \
-            'RUN pip install --no-cache-dir -r /opt/model/requirements.txt || true \' \
-            '    && pip install --no-cache-dir mlflow==2.17.0 \' \
-            '    && pip install --no-cache-dir scikit-learn==1.4.2 pandas==2.2.2 numpy==1.26.4' \
-            'EXPOSE 8080' \
-            'ENV MLFLOW_MODEL_PATH=/opt/model' \
-            'CMD ["mlflow", "models", "serve", "-m", "/opt/model", "-h", "0.0.0.0", "-p", "8080", "--env-manager", "local"]' \
-            > "$workdir/Dockerfile"
+
+          # Create Dockerfile
+          cat << 'EOF' > "$workdir/Dockerfile"
+FROM python:3.10-slim
+WORKDIR /opt/model
+
+COPY model /opt/model
+
+# Install model requirements (if available) and ML libraries
+RUN if [ -f /opt/model/requirements.txt ]; then \
+      pip install --no-cache-dir -r /opt/model/requirements.txt; \
+    fi && \
+    pip install --no-cache-dir mlflow==2.17.0 scikit-learn==1.4.2 pandas==2.2.2 numpy==1.26.4
+
+EXPOSE 8080
+
+ENV MLFLOW_MODEL_PATH=/opt/model
+
+CMD ["mlflow", "models", "serve", "-m", "/opt/model", "-h", "0.0.0.0", "-p", "8080", "--env-manager", "local"]
+EOF
+
           docker build -t "$image_name" "$workdir"
           echo "IMAGE_NAME=$image_name" >> $GITHUB_ENV
 
-      - name: Push Docker image
+      - name: Push Docker Image to DockerHub
         if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
         shell: bash
         run: |
           set -e
+
           user_lc=$(echo "$DOCKERHUB_USERNAME" | tr '[:upper:]' '[:lower:]')
           image_name="${user_lc}/workflow-ci-mlflow"
+
           echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
           docker push "$image_name"
-      
