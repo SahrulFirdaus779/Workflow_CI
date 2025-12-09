@@ -50,16 +50,19 @@ jobs:
             echo "No MLflow model artifacts found to build docker image." >&2
             exit 1
           fi
+          conda_file="$model_dir/conda.yaml"
+          if [ -f "$conda_file" ]; then
+            sed -i 's/python=3\.8/python=3.10/g' "$conda_file"
+            grep -n "python" "$conda_file" || true
+          fi
           user_lc=$(echo "$DOCKERHUB_USERNAME" | tr '[:upper:]' '[:lower:]')
           image_name="${user_lc}/workflow-ci-mlflow"
           echo "Using model path: $model_dir"
           echo "Building image: $image_name"
-          # Build with python 3.10 base image (supported MLflow option)
           mlflow models build-docker \
             -m "$model_dir" \
             -n "$image_name" \
-            --install-mlflow \
-            --python 3.10
+            --install-mlflow
           echo "IMAGE_NAME=$image_name" >> $GITHUB_ENV
 
       - name: Push Docker image
