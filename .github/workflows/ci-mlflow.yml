@@ -41,20 +41,23 @@ jobs:
           path: MLProject/outputs
           if-no-files-found: error
 
+      # --- Replaced: build context creation + login + build/push using official actions ---
       - name: Build Docker image from latest run
-        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
+        if: ${{ secrets.DOCKERHUB_USERNAME && secrets.DOCKERHUB_TOKEN }}
         shell: bash
         run: |
-          set -e
-          model_dir=$(find mlruns -path "*/artifacts/model" -type d | head -n 1)
-          if [ -z "$model_dir" ]; then
+          set -euo pipefail
+          model_dir=$(find mlruns -path "*/artifacts/model" -type d | head -n 1 || true)
+          if [ -z "${model_dir:-}" ]; then
             echo "No MLflow model artifacts found to build docker image." >&2
             exit 1
           fi
-          user_lc=$(echo "$DOCKERHUB_USERNAME" | tr '[:upper:]' '[:lower:]')
-          image_name="${user_lc}/workflow-ci-mlflow"
+          # keep original username for login, but use lowercase for image tags
+          user_orig="${{ secrets.DOCKERHUB_USERNAME }}"
+          user_lc=$(echo "$user_orig" | tr '[:upper:]' '[:lower:]')
+          image_base="${user_lc}/workflow-ci-mlflow"
           echo "Using model path: $model_dir"
-          echo "Building image: $image_name"
+          echo "Preparing docker context for: $image_base"
           workdir="docker_ctx"
           rm -rf "$workdir" && mkdir -p "$workdir/model"
           cp -r "$model_dir"/* "$workdir/model/"
@@ -69,16 +72,29 @@ jobs:
             'ENV MLFLOW_MODEL_PATH=/opt/model' \
             'CMD ["mlflow", "models", "serve", "-m", "/opt/model", "-h", "0.0.0.0", "-p", "8080", "--env-manager", "local"]' \
             > "$workdir/Dockerfile"
-          docker build -t "$image_name" "$workdir"
-          echo "IMAGE_NAME=$image_name" >> $GITHUB_ENV
+          # export a stable env var for later steps
+          echo "IMAGE_BASE=$image_base" >> $GITHUB_ENV
 
-      - name: Push Docker image
-        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
-        shell: bash
+      - name: Log in to Docker Hub
+        if: ${{ secrets.DOCKERHUB_USERNAME && secrets.DOCKERHUB_TOKEN }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        if: ${{ secrets.DOCKERHUB_USERNAME && secrets.DOCKERHUB_TOKEN }}
+        uses: docker/build-push-action@v4
+        with:
+          context: docker_ctx
+          file: docker_ctx/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_BASE }}:latest
+            ${{ env.IMAGE_BASE }}:${{ github.sha }}
+
+      - name: Echo pushed image tags
+        if: ${{ secrets.DOCKERHUB_USERNAME && secrets.DOCKERHUB_TOKEN }}
         run: |
-          set -e
-          user_lc=$(echo "$DOCKERHUB_USERNAME" | tr '[:upper:]' '[:lower:]')
-          image_name="${user_lc}/workflow-ci-mlflow"
-          echo "$DOCKERHUB_TOKEN" | docker login -u "$user_lc" --password-stdin
-          docker push "$image_name"
-      
+          echo "Pushed: ${{ env.IMAGE_BASE }}:latest"
+          echo "Pushed: ${{ env.IMAGE_BASE }}:${{ github.sha }}"
