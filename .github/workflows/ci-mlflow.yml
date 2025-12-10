@@ -79,6 +79,6 @@ jobs:
           set -e
           user_lc=$(echo "$DOCKERHUB_USERNAME" | tr '[:upper:]' '[:lower:]')
           image_name="${user_lc}/workflow-ci-mlflow"
-          echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+          echo "$DOCKERHUB_TOKEN" | docker login -u "$user_lc" --password-stdin
           docker push "$image_name"
       
