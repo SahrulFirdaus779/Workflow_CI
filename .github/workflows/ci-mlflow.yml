@@ -5,14 +5,18 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-env:
-  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-  DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-  MLFLOW_TRACKING_URI: ""
+# Batasi permissions ke yang diperlukan
+permissions:
+  contents: read
 
 jobs:
   train:
     runs-on: ubuntu-latest
+    # Map secrets ke env di level job agar bisa dipakai di ekspresi if tanpa error validator.
+    # Catatan: ini membuat DOCKERHUB_* tersedia sebagai env pada seluruh job — jangan cetak/echo nilainya.
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     defaults:
       run:
         working-directory: MLProject
@@ -41,9 +45,9 @@ jobs:
           path: MLProject/outputs
           if-no-files-found: error
 
-      # --- Replaced: build context creation + login + build/push using official actions ---
-      - name: Build Docker image from latest run
-        if: ${{ secrets.DOCKERHUB_USERNAME && secrets.DOCKERHUB_TOKEN }}
+      # Hanya jalankan blok Docker bila DOCKERHUB secrets tersedia
+      - name: Prepare docker context from latest MLflow run
+        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -52,12 +56,11 @@ jobs:
             echo "No MLflow model artifacts found to build docker image." >&2
             exit 1
           fi
-          # keep original username for login, but use lowercase for image tags
-          user_orig="${{ secrets.DOCKERHUB_USERNAME }}"
+          user_orig="$DOCKERHUB_USERNAME"
+          # lowercase only for image name (login still uses original username)
           user_lc=$(echo "$user_orig" | tr '[:upper:]' '[:lower:]')
           image_base="${user_lc}/workflow-ci-mlflow"
           echo "Using model path: $model_dir"
-          echo "Preparing docker context for: $image_base"
           workdir="docker_ctx"
           rm -rf "$workdir" && mkdir -p "$workdir/model"
           cp -r "$model_dir"/* "$workdir/model/"
@@ -72,29 +75,30 @@ jobs:
             'ENV MLFLOW_MODEL_PATH=/opt/model' \
             'CMD ["mlflow", "models", "serve", "-m", "/opt/model", "-h", "0.0.0.0", "-p", "8080", "--env-manager", "local"]' \
             > "$workdir/Dockerfile"
-          # export a stable env var for later steps
+          # Simpan nama image (tidak menyimpan token)
           echo "IMAGE_BASE=$image_base" >> $GITHUB_ENV
 
       - name: Log in to Docker Hub
-        if: ${{ secrets.DOCKERHUB_USERNAME && secrets.DOCKERHUB_TOKEN }}
+        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
         uses: docker/login-action@v3
         with:
+          # Gunakan secrets secara langsung sebagai input action; jangan echo token di logs
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push Docker image
-        if: ${{ secrets.DOCKERHUB_USERNAME && secrets.DOCKERHUB_TOKEN }}
+        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
         uses: docker/build-push-action@v4
         with:
-          context: docker_ctx
-          file: docker_ctx/Dockerfile
+          context: MLProject/docker_ctx
+          file: MLProject/docker_ctx/Dockerfile
           push: true
           tags: |
             ${{ env.IMAGE_BASE }}:latest
             ${{ env.IMAGE_BASE }}:${{ github.sha }}
 
-      - name: Echo pushed image tags
-        if: ${{ secrets.DOCKERHUB_USERNAME && secrets.DOCKERHUB_TOKEN }}
+      - name: Echo pushed image tags (safe — tidak menampilkan token)
+        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
         run: |
           echo "Pushed: ${{ env.IMAGE_BASE }}:latest"
           echo "Pushed: ${{ env.IMAGE_BASE }}:${{ github.sha }}"
