@@ -37,7 +37,9 @@ def train_and_log(X_train, X_test, y_train, y_test, experiment_name: str, random
     output_dir.mkdir(parents=True, exist_ok=True)
 
     mlflow.set_experiment(experiment_name)
-    mlflow.sklearn.autolog(log_models=True)
+    # Use autolog for parameters/metrics but log models explicitly to ensure
+    # the model artifact path is exactly `artifacts/model` so CI can find it.
+    mlflow.sklearn.autolog(log_models=False)
 
     clf = RandomForestClassifier(
         n_estimators=200,
@@ -52,6 +54,12 @@ def train_and_log(X_train, X_test, y_train, y_test, experiment_name: str, random
 
     with run_ctx:
         clf.fit(X_train, y_train)
+        # Explicitly log the trained model to artifact path "model"
+        # so `mlflow models build-docker -m runs:/<run_id>/model` can locate it.
+        try:
+            mlflow.sklearn.log_model(clf, artifact_path="model")
+        except Exception as e:
+            print(f"Warning: failed to mlflow.log_model: {e}")
         preds = clf.predict(X_test)
 
         metrics = {

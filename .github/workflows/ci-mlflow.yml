@@ -38,6 +38,20 @@ jobs:
         run: |
           mlflow run . --env-manager local -P output-dir=outputs
 
+      - name: Get latest MLflow run_id
+        id: get_run_id
+        run: |
+          run_id=$(ls -td mlruns/*/* | head -1 | awk -F'/' '{print $3}')
+          echo "$run_id" > outputs/run_id.txt
+          echo "RUN_ID=$run_id" >> $GITHUB_ENV
+
+      - name: Upload run_id artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlflow-run-id
+          path: MLProject/outputs/run_id.txt
+          if-no-files-found: error
+
       - name: Upload outputs artifact
         uses: actions/upload-artifact@v4
         with:
@@ -45,38 +59,22 @@ jobs:
           path: MLProject/outputs
           if-no-files-found: error
 
-      # Hanya jalankan blok Docker bila DOCKERHUB secrets tersedia
-      - name: Prepare docker context from latest MLflow run
-        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-        shell: bash
+      - name: Upload outputs to Google Drive (rclone)
+        if: ${{ env.GDRIVE_CONFIG != '' }}
         run: |
-          set -euo pipefail
-          model_dir=$(find mlruns -path "*/artifacts/model" -type d | head -n 1 || true)
-          if [ -z "${model_dir:-}" ]; then
-            echo "No MLflow model artifacts found to build docker image." >&2
-            exit 1
-          fi
+          rclone copy MLProject/outputs gdrive:/mlflow-outputs/${{ env.RUN_ID }} --config "$GDRIVE_CONFIG"
+        env:
+          GDRIVE_CONFIG: ${{ secrets.GDRIVE_CONFIG }}
+
+      # Hanya jalankan blok Docker bila DOCKERHUB secrets tersedia
+      - name: Build Docker image with MLflow
+        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+        run: |
           user_orig="$DOCKERHUB_USERNAME"
-          # lowercase only for image name (login still uses original username)
           user_lc=$(echo "$user_orig" | tr '[:upper:]' '[:lower:]')
           image_base="${user_lc}/workflow-ci-mlflow"
-          echo "Using model path: $model_dir"
-          workdir="docker_ctx"
-          rm -rf "$workdir" && mkdir -p "$workdir/model"
-          cp -r "$model_dir"/* "$workdir/model/"
-          printf '%s\n' \
-            'FROM python:3.10-slim' \
-            'WORKDIR /opt/model' \
-            'COPY model /opt/model' \
-            'RUN pip install --no-cache-dir -r /opt/model/requirements.txt || true \' \
-            '    && pip install --no-cache-dir mlflow==2.17.0 \' \
-            '    && pip install --no-cache-dir scikit-learn==1.4.2 pandas==2.2.2 numpy==1.26.4' \
-            'EXPOSE 8080' \
-            'ENV MLFLOW_MODEL_PATH=/opt/model' \
-            'CMD ["mlflow", "models", "serve", "-m", "/opt/model", "-h", "0.0.0.0", "-p", "8080", "--env-manager", "local"]' \
-            > "$workdir/Dockerfile"
-          # Simpan nama image (tidak menyimpan token)
           echo "IMAGE_BASE=$image_base" >> $GITHUB_ENV
+          mlflow models build-docker -m "mlruns/0/${RUN_ID}/artifacts/model" -n "$image_base:${RUN_ID}"
 
       - name: Log in to Docker Hub
         if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
@@ -86,19 +84,16 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Push Docker image to Docker Hub
         if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-        uses: docker/build-push-action@v4
-        with:
-          context: MLProject/docker_ctx
-          file: MLProject/docker_ctx/Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE_BASE }}:latest
-            ${{ env.IMAGE_BASE }}:${{ github.sha }}
+        run: |
+          docker tag ${{ env.IMAGE_BASE }}:${RUN_ID} ${{ env.IMAGE_BASE }}:latest
+          echo $DOCKERHUB_TOKEN | docker login -u $DOCKERHUB_USERNAME --password-stdin
+          docker push ${{ env.IMAGE_BASE }}:${RUN_ID}
+          docker push ${{ env.IMAGE_BASE }}:latest
 
       - name: Echo pushed image tags (safe — tidak menampilkan token)
         if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
         run: |
           echo "Pushed: ${{ env.IMAGE_BASE }}:latest"
-          echo "Pushed: ${{ env.IMAGE_BASE }}:${{ github.sha }}"
+          echo "Pushed: ${{ env.IMAGE_BASE }}:${RUN_ID}"
